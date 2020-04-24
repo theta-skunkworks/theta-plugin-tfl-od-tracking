@@ -1,7 +1,7 @@
 # Object tracking sample using TF-Lite Object Detection and equirectangular rotation processing
 
-より詳しい日本語の説明は[こちら](https://qiita.com/KA-2/未定)。<br>
-[Click here](https://qiita.com/KA-2/未定) for a more detailed explanation in Japanese.
+より詳しい日本語の説明は[こちら](https://qiita.com/KA-2/items/6f8395e4ea0dc378cc7a)。<br>
+[Click here](https://qiita.com/KA-2/items/6f8395e4ea0dc378cc7a) for a more detailed explanation in Japanese.
 
 
 このソフトウェアは、 Apache 2.0ライセンスで配布されている製作物が含まれています。<br>
