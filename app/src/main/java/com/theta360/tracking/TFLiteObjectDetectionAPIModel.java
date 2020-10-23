@@ -123,34 +123,28 @@ public class TFLiteObjectDetectionAPIModel implements Detector {
     MetadataExtractor metadata = new MetadataExtractor(modelFile);
     // "2. Describe the issue" の対策
     //https://github.com/tensorflow/models/issues/9341
+    BufferedReader br = null;
     if( metadata.hasMetadata() ) {
       Log.w(TAG, "Has Metadata");
-      try (BufferedReader br =
-                   new BufferedReader(
-                           new InputStreamReader(
-                                   metadata.getAssociatedFile(labelFilename), Charset.defaultCharset()))) {
-        String line;
-        while ((line = br.readLine()) != null) {
-          Log.w(TAG, line);
-          d.labels.add(line);
-        }
-      }
+      br =new BufferedReader(
+              new InputStreamReader(
+                      metadata.getAssociatedFile(labelFilename), Charset.defaultCharset()));
     } else {
       Log.w(TAG, "No Metadata");
-      InputStream labelsInput  = context.getAssets().open(labelFilename);
-      BufferedReader br = new BufferedReader(new InputStreamReader(labelsInput));
-      String line;
-      boolean firstLine = true;
-      while ((line = br.readLine()) != null) {
-        if ( firstLine ) {
-          firstLine=false;
-        } else {
-          Log.w(TAG, line);
-          d.labels.add(line);
-        }
-      }
-      br.close();
+      InputStream labelsInput = context.getAssets().open(labelFilename);
+      br = new BufferedReader(new InputStreamReader(labelsInput));
     }
+    String line;
+    boolean firstLine = true;
+    while ((line = br.readLine()) != null) {
+      if ( firstLine ) {
+        firstLine=false;
+      } else {
+        Log.w(TAG, line);
+        d.labels.add(line);
+      }
+    }
+    br.close();
 
 
     d.inputSize = inputSize;
