@@ -373,7 +373,8 @@ public class MainActivity extends PluginActivity {
     //==============================================================
     // Image processing Thread
     //==============================================================
-    private static final String TF_OD_API_MODEL_FILE = "detect.tflite";
+    //private static final String TF_OD_API_MODEL_FILE = "detect.tflite";//OLD
+    private static final String TF_OD_API_MODEL_FILE = "ssd_mobilenet_v1_1_metadata_1.tflite";
     //private static final String TF_OD_API_LABELS_FILE = "file:///android_asset/labelmap.txt"; //OLD
     private static final String TF_OD_API_LABELS_FILE = "labelmap.txt";
     private static final int TF_OD_API_INPUT_SIZE = 300;
