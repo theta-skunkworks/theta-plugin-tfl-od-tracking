@@ -374,7 +374,8 @@ public class MainActivity extends PluginActivity {
     // Image processing Thread
     //==============================================================
     private static final String TF_OD_API_MODEL_FILE = "detect.tflite";
-    private static final String TF_OD_API_LABELS_FILE = "file:///android_asset/labelmap.txt";
+    //private static final String TF_OD_API_LABELS_FILE = "file:///android_asset/labelmap.txt"; //OLD
+    private static final String TF_OD_API_LABELS_FILE = "labelmap.txt";
     private static final int TF_OD_API_INPUT_SIZE = 300;
     private static final boolean TF_OD_API_IS_QUANTIZED = true;
 
@@ -397,11 +398,12 @@ public class MainActivity extends PluginActivity {
                 ///////////////////////////////////////////////////////////////////////
                 // TFLite Initial detector
                 ///////////////////////////////////////////////////////////////////////
-                Classifier detector=null;
+                Detector detector=null;
                 try {
                     Log.d(TAG, "### TFLite Initial detector ###");
                     detector = TFLiteObjectDetectionAPIModel.create(
-                            getAssets(),
+                            //getAssets(), //OLD
+                            getApplicationContext(),
                             TF_OD_API_MODEL_FILE,
                             TF_OD_API_LABELS_FILE,
                             TF_OD_API_INPUT_SIZE,
@@ -501,9 +503,9 @@ public class MainActivity extends PluginActivity {
                         ///////////////////////////////////////////////////////////////////////
                         // TFLite Object detection
                         ///////////////////////////////////////////////////////////////////////
-                        final List<Classifier.Recognition> results = detector.recognizeImage(cropBitmap);
+                        final List<Detector.Recognition> results = detector.recognizeImage(cropBitmap);
                         Log.d(TAG, "### TFLite Object detection [result] ###");
-                        for (final Classifier.Recognition result : results) {
+                        for (final Detector.Recognition result : results) {
                             drawDetectResult(result, resultCanvas, mPaint, offsetX, offsetY);
                         }
 
@@ -578,7 +580,7 @@ public class MainActivity extends PluginActivity {
     }
 
 
-    private void drawDetectResult(Classifier.Recognition inResult, Canvas inResultCanvas, Paint inPaint, int inOffsetX, int inOffsetY){
+    private void drawDetectResult(Detector.Recognition inResult, Canvas inResultCanvas, Paint inPaint, int inOffsetX, int inOffsetY){
         double confidence = Double.valueOf(inResult.getConfidence());
         if ( confidence >= 0.54 ) {
             Log.d(TAG, "[result] Title:" + inResult.getTitle());
@@ -611,7 +613,7 @@ public class MainActivity extends PluginActivity {
         }
     }
 
-    private void updateDetectInfo(Classifier.Recognition inResult, int inOffsetX, int inOffsetY){
+    private void updateDetectInfo(Detector.Recognition inResult, int inOffsetX, int inOffsetY){
         int tmp = lastDetectYaw;
         int curDetectYaw = (int)( inOffsetX + inResult.getLocation().left + ((inResult.getLocation().right-inResult.getLocation().left)/2) );
         if ( curDetectYaw <= (equiW/2) ) {

@@ -15,11 +15,15 @@ limitations under the License.
 
 package com.theta360.tracking;
 
+import static java.lang.Math.min;
+
+import android.content.Context;
 import android.content.res.AssetFileDescriptor;
 import android.content.res.AssetManager;
 import android.graphics.Bitmap;
 import android.graphics.RectF;
 import android.os.Trace;
+import android.util.Log;
 import java.io.BufferedReader;
 import java.io.FileInputStream;
 import java.io.IOException;
@@ -29,33 +33,42 @@ import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
 import java.nio.MappedByteBuffer;
 import java.nio.channels.FileChannel;
+import java.nio.charset.Charset;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.Vector;
 import org.tensorflow.lite.Interpreter;
-//import org.tensorflow.lite.examples.detection.env.Logger;
+import org.tensorflow.lite.support.metadata.MetadataExtractor;
 
 /**
- * Wrapper for frozen detection models trained using the Tensorflow Object Detection API:
- * github.com/tensorflow/models/tree/master/research/object_detection
+ * Wrapper for frozen detection models trained using the Tensorflow Object Detection API: -
+ * https://github.com/tensorflow/models/tree/master/research/object_detection where you can find the
+ * training code.
+ *
+ * <p>To use pretrained models in the API or convert to TF Lite models, please see docs for details:
+ * -
+ * https://github.com/tensorflow/models/blob/master/research/object_detection/g3doc/tf1_detection_zoo.md
+ * -
+ * https://github.com/tensorflow/models/blob/master/research/object_detection/g3doc/tf2_detection_zoo.md
+ * -
+ * https://github.com/tensorflow/models/blob/master/research/object_detection/g3doc/running_on_mobile_tensorflowlite.md#running-our-model-on-android
  */
-public class TFLiteObjectDetectionAPIModel implements Classifier {
-  private static final Logger LOGGER = new Logger();
+public class TFLiteObjectDetectionAPIModel implements Detector {
+  private static final String TAG = "TFLiteObjectDetectionAPIModelWithInterpreter";
 
   // Only return this many results.
   private static final int NUM_DETECTIONS = 10;
   // Float model
-  private static final float IMAGE_MEAN = 128.0f;
-  private static final float IMAGE_STD = 128.0f;
+  private static final float IMAGE_MEAN = 127.5f;
+  private static final float IMAGE_STD = 127.5f;
   // Number of threads in the java app
   private static final int NUM_THREADS = 4;
   private boolean isModelQuantized;
   // Config values.
   private int inputSize;
   // Pre-allocated buffers.
-  private Vector<String> labels = new Vector<String>();
+  private final List<String> labels = new ArrayList<>();
   private int[] intValues;
   // outputLocations: array of shape [Batchsize, NUM_DETECTIONS,4]
   // contains the location of detected boxes
@@ -72,6 +85,8 @@ public class TFLiteObjectDetectionAPIModel implements Classifier {
 
   private ByteBuffer imgData;
 
+  private MappedByteBuffer tfLiteModel;
+  private Interpreter.Options tfLiteOptions;
   private Interpreter tfLite;
 
   private TFLiteObjectDetectionAPIModel() {}
@@ -90,14 +105,13 @@ public class TFLiteObjectDetectionAPIModel implements Classifier {
   /**
    * Initializes a native TensorFlow session for classifying images.
    *
-   * @param assetManager The asset manager to be used to load assets.
-   * @param modelFilename The filepath of the model GraphDef protocol buffer.
-   * @param labelFilename The filepath of label file for classes.
+   * @param modelFilename The model file path relative to the assets folder
+   * @param labelFilename The label file path relative to the assets folder
    * @param inputSize The size of image input
    * @param isQuantized Boolean representing model is quantized or not
    */
-  public static Classifier create(
-      final AssetManager assetManager,
+  public static Detector create(
+      final Context context,
       final String modelFilename,
       final String labelFilename,
       final int inputSize,
@@ -105,22 +119,48 @@ public class TFLiteObjectDetectionAPIModel implements Classifier {
       throws IOException {
     final TFLiteObjectDetectionAPIModel d = new TFLiteObjectDetectionAPIModel();
 
-    InputStream labelsInput = null;
-    String actualFilename = labelFilename.split("file:///android_asset/")[1];
-    labelsInput = assetManager.open(actualFilename);
-    BufferedReader br = null;
-    br = new BufferedReader(new InputStreamReader(labelsInput));
-    String line;
-    while ((line = br.readLine()) != null) {
-      LOGGER.w(line);
-      d.labels.add(line);
+    MappedByteBuffer modelFile = loadModelFile(context.getAssets(), modelFilename);
+    MetadataExtractor metadata = new MetadataExtractor(modelFile);
+    // "2. Describe the issue" の対策
+    //https://github.com/tensorflow/models/issues/9341
+    if( metadata.hasMetadata() ) {
+      Log.w(TAG, "Has Metadata");
+      try (BufferedReader br =
+                   new BufferedReader(
+                           new InputStreamReader(
+                                   metadata.getAssociatedFile(labelFilename), Charset.defaultCharset()))) {
+        String line;
+        while ((line = br.readLine()) != null) {
+          Log.w(TAG, line);
+          d.labels.add(line);
+        }
+      }
+    } else {
+      Log.w(TAG, "No Metadata");
+      InputStream labelsInput  = context.getAssets().open(labelFilename);
+      BufferedReader br = new BufferedReader(new InputStreamReader(labelsInput));
+      String line;
+      boolean firstLine = true;
+      while ((line = br.readLine()) != null) {
+        if ( firstLine ) {
+          firstLine=false;
+        } else {
+          Log.w(TAG, line);
+          d.labels.add(line);
+        }
+      }
+      br.close();
     }
-    br.close();
+
 
     d.inputSize = inputSize;
 
     try {
-      d.tfLite = new Interpreter(loadModelFile(assetManager, modelFilename));
+      Interpreter.Options options = new Interpreter.Options();
+      options.setNumThreads(NUM_THREADS);
+      d.tfLite = new Interpreter(modelFile, options);
+      d.tfLiteModel = modelFile;
+      d.tfLiteOptions = options;
     } catch (Exception e) {
       throw new RuntimeException(e);
     }
@@ -137,7 +177,6 @@ public class TFLiteObjectDetectionAPIModel implements Classifier {
     d.imgData.order(ByteOrder.nativeOrder());
     d.intValues = new int[d.inputSize * d.inputSize];
 
-    d.tfLite.setNumThreads(NUM_THREADS);
     d.outputLocations = new float[1][NUM_DETECTIONS][4];
     d.outputClasses = new float[1][NUM_DETECTIONS];
     d.outputScores = new float[1][NUM_DETECTIONS];
@@ -195,24 +234,28 @@ public class TFLiteObjectDetectionAPIModel implements Classifier {
 
     // Show the best detections.
     // after scaling them back to the input size.
-    final ArrayList<Recognition> recognitions = new ArrayList<>(NUM_DETECTIONS);
-    for (int i = 0; i < NUM_DETECTIONS; ++i) {
+    // You need to use the number of detections from the output and not the NUM_DETECTONS variable
+    // declared on top
+    // because on some models, they don't always output the same total number of detections
+    // For example, your model's NUM_DETECTIONS = 20, but sometimes it only outputs 16 predictions
+    // If you don't use the output's numDetections, you'll get nonsensical data
+    int numDetectionsOutput =
+        min(
+            NUM_DETECTIONS,
+            (int) numDetections[0]); // cast from float to integer, use min for safety
+
+    final ArrayList<Recognition> recognitions = new ArrayList<>(numDetectionsOutput);
+    for (int i = 0; i < numDetectionsOutput; ++i) {
       final RectF detection =
           new RectF(
               outputLocations[0][i][1] * inputSize,
               outputLocations[0][i][0] * inputSize,
               outputLocations[0][i][3] * inputSize,
               outputLocations[0][i][2] * inputSize);
-      // SSD Mobilenet V1 Model assumes class 0 is background class
-      // in label file and class labels start from 1 to number_of_classes+1,
-      // while outputClasses correspond to class index from 0 to number_of_classes
-      int labelOffset = 1;
+
       recognitions.add(
           new Recognition(
-              "" + i,
-              labels.get((int) outputClasses[0][i] + labelOffset),
-              outputScores[0][i],
-              detection));
+              "" + i, labels.get((int) outputClasses[0][i]), outputScores[0][i], detection));
     }
     Trace.endSection(); // "recognizeImage"
     return recognitions;
@@ -227,14 +270,31 @@ public class TFLiteObjectDetectionAPIModel implements Classifier {
   }
 
   @Override
-  public void close() {}
+  public void close() {
+    if (tfLite != null) {
+      tfLite.close();
+      tfLite = null;
+    }
+  }
 
-  public void setNumThreads(int num_threads) {
-    if (tfLite != null) tfLite.setNumThreads(num_threads);
+  @Override
+  public void setNumThreads(int numThreads) {
+    if (tfLite != null) {
+      tfLiteOptions.setNumThreads(numThreads);
+      recreateInterpreter();
+    }
   }
 
   @Override
   public void setUseNNAPI(boolean isChecked) {
-    if (tfLite != null) tfLite.setUseNNAPI(isChecked);
+    if (tfLite != null) {
+      tfLiteOptions.setUseNNAPI(isChecked);
+      recreateInterpreter();
+    }
+  }
+
+  private void recreateInterpreter() {
+    tfLite.close();
+    tfLite = new Interpreter(tfLiteModel, tfLiteOptions);
   }
 }
